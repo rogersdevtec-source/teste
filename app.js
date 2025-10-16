@@ -1,49 +1,49 @@
-import express from 'express';
-import { execSync } from 'child_process';
-import playwright from 'playwright';
+const express = require('express');
+const { chromium } = require('playwright');
 
-//
-// 🔧 Instala o Chromium automaticamente ao iniciar o container Render
-//
-try {
-  console.log('🧩 Verificando instalação do Playwright...');
-  execSync('npx playwright install chromium', { stdio: 'inherit' });
-  console.log('✅ Chromium instalado com sucesso.');
-} catch (e) {
-  console.error('❌ Falha ao instalar Chromium:', e);
-}
-
-//
-// 🚀 Inicializa o servidor Express
-//
 const app = express();
-const port = process.env.PORT || 10000;
+const PORT = process.env.PORT || 10000;
 
-app.get('/', (req, res) => {
-  res.json({ message: 'credaluga-login-api alive' });
-});
-
-//
-// 🔍 Endpoint de teste com Playwright
-//
 app.get('/test', async (req, res) => {
+  let browser;
   try {
-    const browser = await playwright.chromium.launch({ headless: true });
-    const page = await browser.newPage();
-    await page.goto('https://example.com');
-    const title = await page.title();
-    await browser.close();
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const page = await context.newPage();
 
-    res.json({ ok: true, title });
-  } catch (err) {
-    console.error('Erro Playwright:', err);
-    res.status(500).json({ error: 'Playwright failed', details: err.message });
+    // 1️⃣ Ir para a página de login
+    await page.goto('https://app.credaluga.com.br/login', { waitUntil: 'networkidle' });
+
+    // 2️⃣ Capturar CSRF do input escondido
+    const csrfToken = await page.$eval('input[name="csrfToken"]', el => el.value);
+
+    // 3️⃣ Preencher login
+    await page.fill('input[name="email"]', 'caroline@amppliataimoveis.com.br');
+    await page.fill('input[name="password"]', 'Carol@123');
+
+    // 4️⃣ Submeter o formulário
+    await Promise.all([
+      page.click('button[type="submit"]'),
+      page.waitForNavigation({ waitUntil: 'networkidle' }),
+    ]);
+
+    // 5️⃣ Capturar cookies
+    const cookies = await context.cookies();
+
+    // 6️⃣ Retornar resultado em JSON
+    res.json({
+      csrfToken,
+      cookies
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Playwright failed', details: error.message });
+  } finally {
+    if (browser) await browser.close();
   }
 });
 
-//
-// 🖥️ Inicia o servidor
-//
-app.listen(port, () => {
-  console.log(`✅ Server listening on port ${port}`);
+app.listen(PORT, () => {
+  console.log(`✅ Server listening on port ${PORT}`);
 });
