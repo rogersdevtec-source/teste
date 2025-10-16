@@ -1,17 +1,18 @@
 {
   "name": "credaluga-login-api",
   "version": "1.0.0",
-  "description": "API para capturar cookie e csrfToken automaticamente",
+  "description": "Playwright API for Credaluga login automation",
   "main": "app.js",
+  "type": "module",
   "scripts": {
-    "start": "node app.js",
-    "postinstall": "npx playwright install chromium"
+    "postinstall": "npx playwright install chromium",
+    "start": "node app.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "playwright": "^1.48.2"
+    "express": "^4.18.2",
+    "playwright": "^1.48.0"
   },
   "engines": {
-    "node": "22.x"
+    "node": ">=20.x"
   }
 }
