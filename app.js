@@ -1,5 +1,5 @@
 import express from 'express';
-import { chromium, devices } from 'playwright'; // NOVO: importar 'devices'
+import { chromium, devices } from 'playwright';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -13,7 +13,7 @@ app.get('/', (req, res) => {
   res.json({ message: 'credaluga-login-api alive' });
 });
 
-// NOVO: Função de pausa para simular comportamento humano
+// Função de pausa para simular comportamento humano
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 app.post('/login', async (req, res) => {
@@ -27,35 +27,46 @@ app.post('/login', async (req, res) => {
   let browser;
   try {
     browser = await chromium.launch({ headless: true });
-    
-    // NOVO: Usar o contexto de um dispositivo real para se disfarçar
     const context = await browser.newContext(devices['Desktop Chrome']);
     const page = await context.newPage();
 
-    await page.goto('https://app.credaluga.com.br/login', { waitUntil: 'networkidle' });
+    // 1️⃣ Navega para a página de login
+    await page.goto('https://app.credaluga.com.br/login');
     
-    // NOVO: Esperar o seletor do e-mail aparecer antes de interagir
-    await page.waitForSelector('input[name="email"]');
-    await delay(500); // Pausa de meio segundo
+    // 2️⃣ Espera pela resposta da API que nos dá o token CSRF real
+    console.log('Waiting for CSRF token response...');
+    const csrfResponse = await page.waitForResponse('**/api/auth/csrf');
+    const csrfJson = await csrfResponse.json();
+    const csrfToken = csrfJson.csrfToken;
+    console.log(`CSRF Token captured successfully.`);
 
+    // 3️⃣ Injeta o token CSRF válido no campo escondido da página
+    await page.evaluate((token) => {
+      const csrfInput = document.querySelector('input[name="csrfToken"]');
+      if (csrfInput) {
+        csrfInput.value = token;
+      }
+    }, csrfToken);
+
+    // 4️⃣ Preenche o formulário de login
     await page.fill('input[name="email"]', email);
-    await delay(500); // Pausa de meio segundo
-
     await page.fill('input[name="password"]', password);
-    await delay(1000); // Pausa de 1 segundo
+    await delay(500);
 
+    // 5️⃣ Submete o formulário e espera a navegação
     await Promise.all([
         page.click('button[type="submit"]'),
-        page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }), // Aumentar timeout para 30s
+        page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }),
     ]);
 
+    // 6️⃣ Verifica se o login foi bem-sucedido checando a URL final
     const currentUrl = page.url();
     if (!currentUrl.includes('/imobiliaria')) {
-      // Se o login falhar, vamos tentar tirar um screenshot para debug (opcional)
-      // await page.screenshot({ path: 'debug_login_failed.png' });
-      return res.status(401).json({ error: 'Authentication failed. Invalid credentials.' });
+      console.log('Login failed. Final URL:', currentUrl);
+      return res.status(401).json({ error: 'Authentication failed. Invalid credentials or bot detection.' });
     }
     
+    // 7️⃣ Se o login deu certo, captura os cookies e retorna o sucesso
     const cookies = await context.cookies();
     
     res.status(200).json({ 
