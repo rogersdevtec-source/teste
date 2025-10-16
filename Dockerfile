@@ -5,7 +5,7 @@ FROM mcr.microsoft.com/playwright:jammy
 WORKDIR /usr/src/app
 
 # 3. Copie os arquivos de dependência
-COPY package.json package-lock.json ./
+COPY package.json yarn.lock ./
 
 # 4. Instale as dependências do projeto.
 # A imagem base já vem com os navegadores, então o postinstall é desnecessário.
