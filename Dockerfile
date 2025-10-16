@@ -1,5 +1,5 @@
 # 1. Use uma imagem oficial do Node.js que inclua ferramentas de build do Playwright
-FROM mcr.microsoft.com/playwright/javascript:jammy
+FROM mcr.microsoft.com/playwright:jammy
 
 # 2. Defina o diretório de trabalho dentro do contêiner
 WORKDIR /usr/src/app
