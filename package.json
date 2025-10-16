@@ -1,11 +1,13 @@
 {
-  "name": "teste",
+  "name": "credaluga-login-api",
   "version": "1.0.0",
   "main": "app.js",
   "scripts": {
-    "start": "node app.js"
+    "start": "node app.js",
+    "postinstall": "npx playwright install"
   },
   "dependencies": {
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "playwright": "^1.43.0"
   }
 }
