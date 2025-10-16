@@ -1,32 +1,49 @@
-import express from "express";
-import { chromium } from "playwright";
+import express from 'express';
+import { execSync } from 'child_process';
+import playwright from 'playwright';
 
+//
+// 🔧 Instala o Chromium automaticamente ao iniciar o container Render
+//
+try {
+  console.log('🧩 Verificando instalação do Playwright...');
+  execSync('npx playwright install chromium', { stdio: 'inherit' });
+  console.log('✅ Chromium instalado com sucesso.');
+} catch (e) {
+  console.error('❌ Falha ao instalar Chromium:', e);
+}
+
+//
+// 🚀 Inicializa o servidor Express
+//
 const app = express();
+const port = process.env.PORT || 10000;
 
-app.get("/", (req, res) => {
-  res.json({ message: "credaluga-login-api alive" });
+app.get('/', (req, res) => {
+  res.json({ message: 'credaluga-login-api alive' });
 });
 
-app.get("/test", async (req, res) => {
+//
+// 🔍 Endpoint de teste com Playwright
+//
+app.get('/test', async (req, res) => {
   try {
-    // Aguarda 1s para garantir que o Chromium está pronto
-    await new Promise(r => setTimeout(r, 1000));
-
-    const browser = await chromium.launch({
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"]
-    });
-
+    const browser = await playwright.chromium.launch({ headless: true });
     const page = await browser.newPage();
-    await page.goto("https://example.com", { waitUntil: "domcontentloaded" });
+    await page.goto('https://example.com');
     const title = await page.title();
-
     await browser.close();
+
     res.json({ ok: true, title });
   } catch (err) {
-    res.status(500).json({ error: "Playwright failed", details: err.message });
+    console.error('Erro Playwright:', err);
+    res.status(500).json({ error: 'Playwright failed', details: err.message });
   }
 });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Server listening on ${PORT}`));
+//
+// 🖥️ Inicia o servidor
+//
+app.listen(port, () => {
+  console.log(`✅ Server listening on port ${port}`);
+});
