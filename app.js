@@ -1,8 +1,6 @@
 import express from 'express';
 import { chromium, devices } from 'playwright';
-import dotenv from 'dotenv';
-
-dotenv.config();
+import 'dotenv/config'; // Configura o dotenv automaticamente
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -10,76 +8,94 @@ const PORT = process.env.PORT || 10000;
 app.use(express.json());
 
 app.get('/', (req, res) => {
-  res.json({ message: 'credaluga-login-api alive' });
+  res.json({ message: 'credaluga-login-api alive' });
 });
 
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-
 app.post('/login', async (req, res) => {
-  const email = process.env.LOGIN_EMAIL;
-  const password = process.env.LOGIN_PASSWORD;
+  const email = process.env.LOGIN_EMAIL;
+  const password = process.env.LOGIN_PASSWORD;
+  const loginUrl = 'https://app.credaluga.com.br/login';
+  const successUrlPart = '/imobiliaria'; // Parte da URL após o login bem-sucedido
 
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required on the server.' });
-  }
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email e senha são obrigatórios nas variáveis de ambiente.' });
+  }
 
-  let browser;
-  try {
-    browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext(devices['Desktop Chrome']);
-    const page = await context.newPage();
+  let browser;
+  try {
+    // 1. Inicializa o contexto do navegador
+    browser = await chromium.launch({ headless: true });
+    // Usar o context e o user-agent de um desktop real para evitar detecção
+    const context = await browser.newContext(devices['Desktop Chrome']);
+    const page = await context.newPage();
 
-    // NOVO: Usar Promise.all para iniciar a espera e a navegação simultaneamente
-    // Isso resolve a "race condition" e garante que capturemos a resposta do token.
-    console.log('Navigating and waiting for CSRF response simultaneously...');
-    const [csrfResponse] = await Promise.all([
-      page.waitForResponse('**/api/auth/csrf'), // Começa a "escutar"
-      page.goto('https://app.credaluga.com.br/login')  // Dispara a navegação
-    ]);
+    console.log(`Iniciando navegação para: ${loginUrl}`);
+
+    // 2. Navega para a página de login e espera que toda a rede acalme (networkidle)
+    // Isso garante que o token CSRF no DOM esteja carregado.
+    await page.goto(loginUrl, { waitUntil: 'networkidle', timeout: 60000 }); // Aumenta timeout para 60s
+
+    // 3. Tenta encontrar e extrair o CSRF token do campo escondido no DOM
+    const csrfToken = await page.$eval('input[name="csrfToken"]', el => el.value)
+      .catch(() => {
+        // Se não encontrar o token no DOM, retorna null
+        console.log('CSRF Token não encontrado no DOM. Prosseguindo sem injeção.');
+        return null;
+      });
     
-    const csrfJson = await csrfResponse.json();
-    const csrfToken = csrfJson.csrfToken;
-    console.log(`CSRF Token captured successfully.`);
+    // 4. Preenche os campos de login
+    await page.fill('input[name="email"]', email);
+    await page.fill('input[name="password"]', password);
 
-    await page.evaluate((token) => {
-      const csrfInput = document.querySelector('input[name="csrfToken"]');
-      if (csrfInput) {
-        csrfInput.value = token;
-      }
-    }, csrfToken);
-
-    await page.fill('input[name="email"]', email);
-    await page.fill('input[name="password"]', password);
-    await delay(500);
-
-    await Promise.all([
-        page.click('button[type="submit"]'),
-        page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }),
-    ]);
-
-    const currentUrl = page.url();
-    if (!currentUrl.includes('/imobiliaria')) {
-      console.log('Login failed. Final URL:', currentUrl);
-      return res.status(401).json({ error: 'Authentication failed. Invalid credentials or bot detection.' });
+    // Opcional: Injeta o token apenas se ele foi encontrado
+    // O Playwright (geralmente) lida com o token automaticamente no submit, 
+    // mas deixamos a lógica de injeção direta caso o formulário não o capture.
+    if (csrfToken) {
+        // Esta etapa de injeção é mais complexa e muitas vezes desnecessária
+        // se o Playwright estiver clicando no botão do formulário. Vamos confiar no clique.
+        console.log(`CSRF Token [${csrfToken.substring(0, 8)}...] pronto para submit.`);
     }
-    
-    const cookies = await context.cookies();
-    
-    res.status(200).json({ 
-        message: 'Login successful!',
-        cookies 
-    });
 
-  } catch (err) {
-    console.error('Playwright failed:', err);
-    res.status(500).json({ error: 'An internal error occurred during the login process.', details: err.message });
-  } finally {
-    if (browser) {
-      await browser.close();
+    console.log('Preenchendo credenciais e clicando em Entrar...');
+
+    // 5. Clica no botão de submit e espera a navegação para a URL de sucesso
+    // Usamos um seletor textual para maior robustez
+    await Promise.all([
+        page.getByRole('button', { name: 'Entrar' }).click(), // Tenta clicar em um botão com o texto "Entrar"
+        page.waitForURL(`**/*${successUrlPart}**`, { timeout: 30000 }), // Espera a URL de sucesso por 30s
+    ]);
+
+    // 6. Verifica a URL final para garantir que o login foi bem-sucedido
+    const currentUrl = page.url();
+    if (!currentUrl.includes(successUrlPart)) {
+      console.log('Login falhou. URL final inesperada:', currentUrl);
+      return res.status(401).json({ error: 'Falha na autenticação. Credenciais inválidas ou o site não navegou para o painel.' });
+    }
+    
+    // 7. Captura os cookies de sessão e retorna
+    console.log('Login bem-sucedido! Capturando cookies...');
+    const cookies = await context.cookies();
+    
+    res.status(200).json({ 
+        message: 'Login realizado com sucesso!',
+        cookies: cookies
+    });
+
+  } catch (err) {
+    console.error('Playwright falhou:', err);
+    // Retorna 401 se for um erro relacionado a credenciais ou timeout de navegação
+    if (err.message.includes('waitForURL') || err.message.includes('Entrar')) {
+        return res.status(401).json({ error: 'Falha na Autenticação ou Timeout na Navegação.', details: err.message });
     }
-  }
+
+    res.status(500).json({ error: 'Ocorreu um erro interno durante o processo de login.', details: err.message });
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
 });
 
 app.listen(PORT, () => {
-  console.log(`✅ Server listening on port ${PORT}`);
+  console.log(`✅ Server listening on port ${PORT}`);
 });
